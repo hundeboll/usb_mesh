@@ -6,6 +6,7 @@ import subprocess
 import re
 import time
 import subprocess
+import threading
 from PySide.QtCore import *
 from PySide.QtGui import *
 
@@ -53,6 +54,9 @@ class config_page(QWizardPage):
         self.registerField("user_org", org_edit)
 
         self.add_networks_combo()
+        self.refresh_button = QPushButton()
+        self.refresh_button.setIcon(QIcon.fromTheme("view-refresh"))
+        self.refresh_button.clicked.connect(self.find_devices_thread)
 
         adhoc_check = QCheckBox()
         adhoc_check.stateChanged.connect(self.filter_adhoc_networks)
@@ -86,12 +90,17 @@ class config_page(QWizardPage):
 
         self.dev_combo = combobox()
         self.dev_combo.currentIndexChanged.connect(self.update_networks)
-        QTimer.singleShot(10, self.find_devices)
+        self.find_devices_thread()
         dev_label = QLabel("&Device:")
         dev_label.setBuddy(self.dev_combo)
         self.parent.set_object("network_dev", self.dev_combo)
 
 
+        ssid_hbox = QHBoxLayout()
+        ssid_hbox.addWidget(self.box)
+        ssid_hbox.addWidget(self.refresh_button)
+        ssid_hbox.setStretch(0, 1)
+        ssid_hbox.setStretch(1, 0)
 
         grid = QGridLayout()
         grid.addWidget(name_label, 0,0)
@@ -105,32 +114,23 @@ class config_page(QWizardPage):
         grid.addWidget(filter_label, 4,0)
         grid.addLayout(filter_hbox, 4,1)
         grid.addWidget(ssid_label,  5,0)
-        grid.addWidget(self.box, 5,1)
+        grid.addLayout(ssid_hbox, 5,1)
         grid.addWidget(self.key_label, 6,0)
         grid.addWidget(self.key_edit, 6,1)
         self.setLayout(grid)
 
-    def find_devices_(self):
-        # Read devices from "iw"
-        cmd = ["nm-tool"]
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        p.wait()
-        out,err = p.communicate()
-
-        # Parse devices from output
-        match = re.findall("Device: (\w+)\s.+\s+Type:\s+802\.11 WiFi\s+Driver:\s+(\w+)", out)
-        for dev,drv in match:
-            # Parse network from output
-            nets = re.findall(ur"Device: {}.+?Wireless Access Points.+?$(.+?)^$".format(dev),
-                    out, re.DOTALL | re.MULTILINE)
-            ssids = []
-            for line in nets[0].split("\n"):
-                ssid = re.findall("\s+([\w -æøå]+):\s+([\w-]+?), ([A-F0-9:]{17}), Freq (\d+) MHz, Rate (\d+\.?\d?) Mb/s, Strength (\d+) ?(\w+)?", line)
-                if ssid:
-                    ssids.extend(ssid)
-            self.dev_combo.addItem("{} - {}".format(dev, drv), [dev, ssids])
+    def find_devices_thread(self):
+        if hasattr(self, "t") and self.t.is_alive():
+            return
+        self.t = threading.Thread(None, self.find_devices)
+        self.t.start()
 
     def find_devices(self):
+        # Clear devices
+        self.refresh_button.setEnabled(False)
+        self.dev_combo.clear()
+        self.dev_combo.addItem("Please wait...")
+
         # Get devices
         cmd = ["iw", "dev"]
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -139,48 +139,60 @@ class config_page(QWizardPage):
 
         devs = re.findall("Interface (\w+)", out)
         for dev in devs:
-            # Get drivername
-            cmd = ["ethtool", "-i", dev]
-            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            p.wait()
-            out,err = p.communicate()
-            drv = re.findall("driver: ([\w\- ]+)", out)
+            drv = self.find_driver(dev)
+            ssids = self.find_networks(dev)
+            self.dev_combo.addItem("{} - {}".format(dev, drv), [dev, ssids])
+        self.dev_combo.removeItem(0)
+        self.dev_combo.setCurrentIndex(0)
+        self.refresh_button.setEnabled(True)
 
-            # Get scan result
-            cmd = ["gksudo", "ip", "link", "set", "dev", dev, "up"]
-            p = subprocess.Popen(cmd)
-            cmd = ["gksudo", "iw", "dev", dev, "scan"]
-            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            p.wait()
-            out,err = p.communicate()
+    def find_driver(self, dev):
+        # Get drivername
+        cmd = ["ethtool", "-i", dev]
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        p.wait()
+        out,err = p.communicate()
+        drv = re.findall("driver: ([\w\- ]+)", out)
+        return drv[0] if drv else "Unknown"
 
-            # Split for each SSID
-            nets = re.split("\nBSS", out)
-            ssids = []
-            for net in nets[1:]:
-                # Read data about SSID
-                ssid = []
-                data = re.findall("([a-f0-9:]{17}).+?freq: (\d+).+?capability: (\w+).+?signal: ([-\.\d]+).+?SSID: ([\w -]+)", net, re.DOTALL)
-                if not data:
-                    continue
+    def find_networks(self, dev):
+        # Get scan result
+        cmd = ["gksudo", "ip", "link", "set", "dev", dev, "up"]
+        p = subprocess.Popen(cmd)
+        cmd = ["gksudo", "iw", "dev", dev, "scan"]
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        p.wait()
+        out,err = p.communicate()
 
-                # Get encryption
-                enc = re.findall("(WPA|WEP)", net) or ["None"]
-                ssid.extend(data[0])
-                ssid.extend(enc)
-                ssids.append(ssid)
-            self.dev_combo.addItem("{} - {}".format(dev, drv[0]), [dev, ssids])
+        # Split for each SSID
+        nets = re.split("\nBSS", out)
+        ssids = []
+        for net in nets[1:]:
+            # Read data about SSID
+            ssid = []
+            data = re.findall("([a-f0-9:]{17}).+?freq: (\d+).+?capability: (\w+).+?signal: ([-\.\d]+).+?SSID: ([\w -æøå]+)", net, re.DOTALL)
+            if not data:
+                continue
+
+            # Get encryption
+            enc = re.findall("(WPA|WEP|PSK)", net) or ["None"]
+            ssid.extend(data[0])
+            ssid.extend(enc)
+            ssids.append(ssid)
+        return ssids
 
     def update_networks(self, idx):
         self.model.removeRows(0, self.model.rowCount())
 
         data = self.dev_combo.itemData(idx)
+        if not data:
+            return
         for row in data[1]:
             ssid = row[4]
             mode = "Ad-hoc" if row[2] == "IBSS" else "Infra"
             enc  = row[5]
             signal = row[3]
-            items = [QStandardItem(data) for data in [ssid, mode, signal, enc]]
+            items = [QStandardItem(data) for data in [ssid, mode, enc]]
             [item.setData(row) for item in items]
             self.model.appendRow(items)
 
@@ -195,7 +207,7 @@ class config_page(QWizardPage):
 
         view = QTableView()
         model = QStandardItemModel()
-        model.setHorizontalHeaderLabels(["SSID", "Mode", "Signal", "Enc"])
+        model.setHorizontalHeaderLabels(["SSID", "Mode", "Enc"])
         adhoc_proxy = QSortFilterProxyModel()
         adhoc_proxy.setSourceModel(model)
         enc_proxy = QSortFilterProxyModel()
