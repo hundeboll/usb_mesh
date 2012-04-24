@@ -263,7 +263,7 @@ class config_page(QWizardPage):
     def filter_enc_networks(self, b):
         f = "None" if b else ""
         self.enc_proxy.setFilterRegExp(QRegExp(f))
-        self.enc_proxy.setFilterKeyColumn(3)
+        self.enc_proxy.setFilterKeyColumn(2)
         self.view.resizeColumnsToContents()
 
 
@@ -272,25 +272,35 @@ class finish_page(QWizardPage):
         super(finish_page, self).__init__(parent)
         self.parent = parent
         self.config = "/tmp/wpa_tmp.conf"
+        self.complete = False
 
         self.setTitle("Applying Configuration")
         self.setSubTitle("Making your choices real.")
 
-        status_label = QLabel("Status:")
-        self.status_text  = QLabel("Please Wait")
+        self.log = QPlainTextEdit()
+        self.log.setReadOnly(True)
+        self.log.appendPlainText("Please wait...")
 
         grid = QGridLayout()
-        grid.addWidget(status_label, 0,0)
-        grid.addWidget(self.status_text,  0,1)
+        grid.addWidget(self.log)
         self.setLayout(grid)
 
     def initializePage(self):
         QTimer.singleShot(100, self.apply_config)
 
-    def apply_config(self):
-        self.status_text.setText("Connecting to wireless")
-        self.status_text.repaint()
+    def isComplete(self):
+        return self.complete
 
+    def setComplete(self, b):
+        self.complete = b
+        self.completeChanged.emit()
+        self.log.appendPlainText("Configuration complete")
+
+    def apply_config_thread(self):
+        self.t = threading.Thread(None, self.apply_config)
+        self.t.start()
+
+    def apply_config(self):
         dev,data = self.get_data()
         self.ifdown(dev)
         self.write_wpa_config(data)
@@ -299,10 +309,10 @@ class finish_page(QWizardPage):
         self.config_bat0(dev)
         self.ifup(dev)
         self.ifup("bat0")
-
-        self.status_text.setText("Sending information")
+        self.setComplete(True)
 
     def get_data(self):
+        self.log.appendPlainText("Getting config data")
         # Get device name
         dev_combo = self.parent.get_object("network_dev")
         dev = dev_combo.currentData()[0]
@@ -317,7 +327,6 @@ class finish_page(QWizardPage):
             model = model.sourceModel()
         data = model.itemFromIndex(idx).data()
 
-        # Connect to network
         if data[2] == 'ESS':
             data[2] = "Managed"
         elif data[2] == 'IBSS':
@@ -336,6 +345,7 @@ class finish_page(QWizardPage):
         p.wait()
 
     def write_wpa_config(self, data):
+        self.log.appendPlainText("Writing configuration for wpa_supplicant")
         n  = 'network={\n'
         n += '\tssid="{}"\n'.format(data[4])
         if data[2] == 'Ad-hoc':
@@ -353,6 +363,7 @@ class finish_page(QWizardPage):
         f.close()
 
     def start_wpa(self, dev):
+        self.log.appendPlainText("Connecting to network")
         cmd = ['ps', 'ax']
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         p.wait()
@@ -370,6 +381,7 @@ class finish_page(QWizardPage):
         p.wait()
 
     def config_dev(self, dev):
+        self.log.appendPlainText("Configuring interface")
         cmd = ['gksudo', 'ip', 'link', 'set', 'dev', dev, 'promisc', 'on']
         p = subprocess.Popen(cmd)
         p.wait()
@@ -381,11 +393,13 @@ class finish_page(QWizardPage):
         p.wait()
 
     def config_bat0(self, dev):
+        self.log.appendPlainText("Configuring batman-adv")
         cmd = ['gksudo', 'batctl', 'if', 'add', dev]
         p = subprocess.Popen(cmd)
         p.wait()
 
-        cmd = ['gksudo', 'avahi-autoipd --kill --force-bind --daemonize --wait bat0']
+        self.log.appendPlainText("Acquiring IP address")
+        cmd = ['gksudo', 'avahi-autoipd --force-bind --daemonize --wait bat0']
         p = subprocess.Popen(cmd)
         p.wait()
 
