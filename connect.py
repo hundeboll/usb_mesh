@@ -43,11 +43,6 @@ class config_page(QWizardPage):
         name_label.setBuddy(name_edit)
         self.registerField("user_name*", name_edit)
 
-        mail_edit  = QLineEdit()
-        mail_label = QLabel("&Email:")
-        mail_label.setBuddy(mail_edit)
-        self.registerField("user_mail", mail_edit)
-
         org_edit  = QLineEdit()
         org_label = QLabel("&Organisation:")
         org_label.setBuddy(org_edit)
@@ -105,18 +100,16 @@ class config_page(QWizardPage):
         grid = QGridLayout()
         grid.addWidget(name_label, 0,0)
         grid.addWidget(name_edit,  0,1)
-        grid.addWidget(mail_label, 1,0)
-        grid.addWidget(mail_edit,  1,1)
-        grid.addWidget(org_label,  2,0)
-        grid.addWidget(org_edit,   2,1)
-        grid.addWidget(dev_label,  3,0)
-        grid.addWidget(self.dev_combo,  3,1)
-        grid.addWidget(filter_label, 4,0)
-        grid.addLayout(filter_hbox, 4,1)
-        grid.addWidget(ssid_label,  5,0)
-        grid.addLayout(ssid_hbox, 5,1)
-        grid.addWidget(self.key_label, 6,0)
-        grid.addWidget(self.key_edit, 6,1)
+        grid.addWidget(org_label,  1,0)
+        grid.addWidget(org_edit,   1,1)
+        grid.addWidget(dev_label,  2,0)
+        grid.addWidget(self.dev_combo,  2,1)
+        grid.addWidget(filter_label, 3,0)
+        grid.addLayout(filter_hbox, 3,1)
+        grid.addWidget(ssid_label,  4,0)
+        grid.addLayout(ssid_hbox, 4,1)
+        grid.addWidget(self.key_label, 5,0)
+        grid.addWidget(self.key_edit, 5,1)
         self.setLayout(grid)
 
     def find_devices_thread(self):
@@ -167,7 +160,7 @@ class config_page(QWizardPage):
         # Split for each SSID
         nets = re.split("\nBSS", out)
         ssids = []
-        for net in nets[1:]:
+        for net in nets:
             # Read data about SSID
             ssid = []
             data = re.findall("([a-f0-9:]{17}).+?freq: (\d+).+?capability: (\w+).+?signal: ([-\.\d]+).+?SSID: ([\w -æøå]+)", net, re.DOTALL)
@@ -271,7 +264,8 @@ class finish_page(QWizardPage):
     def __init__(self, parent=None):
         super(finish_page, self).__init__(parent)
         self.parent = parent
-        self.config = "/tmp/wpa_tmp.conf"
+        self.wpa_config = "/tmp/wpa_tmp.conf"
+        self.avahi_config = "/tmp/avahi_tmp.conf"
         self.complete = False
 
         self.setTitle("Applying Configuration")
@@ -309,6 +303,8 @@ class finish_page(QWizardPage):
         self.config_bat0(dev)
         self.ifup(dev)
         self.ifup("bat0")
+        self.write_avahi_config()
+        self.start_avahi()
         self.setComplete(True)
 
     def get_data(self):
@@ -358,7 +354,7 @@ class finish_page(QWizardPage):
                 n += '\tpsk="{}"\n'.format(self.field("network_psk"))
         n += '}\n'
 
-        f = open(self.config, 'w')
+        f = open(self.wpa_config, 'w')
         f.write(n)
         f.close()
 
@@ -368,15 +364,14 @@ class finish_page(QWizardPage):
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         p.wait()
         out,err = p.communicate()
-        pid = re.findall("^(\d+).+?wpa_supplicant -B -i {} -c {}".format(dev, self.config), out, re.MULTILINE)
+        pid = re.findall("^(\d+).+?wpa_supplicant -B -i {} -c {}".format(dev, self.wpa_config), out, re.MULTILINE)
 
         if pid:
-            print(pid)
             cmd = ['gksudo', 'kill', pid[0]]
             p = subprocess.Popen(cmd)
             p.wait()
 
-        cmd = ['gksudo', 'wpa_supplicant -B -i {} -c {}'.format(dev, self.config)]
+        cmd = ['gksudo', 'wpa_supplicant -B -i {} -c {}'.format(dev, self.wpa_config)]
         p = subprocess.Popen(cmd)
         p.wait()
 
@@ -402,6 +397,51 @@ class finish_page(QWizardPage):
         cmd = ['gksudo', 'avahi-autoipd --force-bind --daemonize --wait bat0']
         p = subprocess.Popen(cmd)
         p.wait()
+
+    def write_avahi_config(self):
+        self.log.appendPlainText("Writing Avahi configuration")
+
+        n  = "[server]\n"
+        n += "host-name={} {}\n".format(self.field("user_name"), self.field("user_org"))
+        n += "use-ipv4=yes\n"
+        n += "use-ipv6=no\n"
+        n += "allow-interfaces=bat0\n"
+        n += "ratelimit-interval-usec=1000000\n"
+        n += "ratelimit-burst=1000\n"
+        n += "\n"
+        n += "[wide-area]\n"
+        n += "enable-wide-area=no\n"
+        n += "\n"
+        n += "[publish]\n"
+        n += "disable-publishing=no\n"
+        n += "disable-user-service-publishing=yes\n"
+        n += "add-service-cookie=no\n"
+        n += "publish-addresses=yes\n"
+        n += "publish-hinfo=no\n"
+        n += "publish-workstation=yes\n"
+        n += "publish-domain=no\n"
+        n += "publish-resolv-conf-dns-servers=no\n"
+        n += "publish-aaaa-on-ipv4=no\n"
+        n += "publish-a-on-ipv6=no\n"
+        n += "\n"
+        n += "[rlimits]\n"
+        n += "rlimit-core=0\n"
+        n += "rlimit-data=4194304\n"
+        n += "rlimit-fsize=0\n"
+        n += "rlimit-nofile=768\n"
+        n += "rlimit-stack=4194304\n"
+        n += "rlimit-nproc=3\n"
+
+        f = open(self.avahi_config, "w")
+        f.write(n)
+        f.close()
+
+    def start_avahi(self):
+        self.log.appendPlainText("Publishing node")
+        cmd = ['gksudo', 'avahi-daemon -f {} --daemonize'.format(self.avahi_config)]
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        p.wait()
+        print(p.communicate())
 
 
 class wizard(QWizard):
