@@ -4,16 +4,121 @@ import threading
 import subprocess
 import re
 import time
+import os
+os.environ["QT_API"] = "pyside"
 from PySide.QtCore import *
 from PySide.QtGui import *
+from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
 
-class plots(QWidget):
+class live_fig(QWidget):
+    def __init__(self, title, ylabel, parent=None):
+        super(live_fig, self).__init__(parent)
+        self.clear_data()
+
+        self.layout = QHBoxLayout()
+        self.add_fig(title, ylabel)
+        self.setLayout(self.layout)
+
+    def on_draw(self, event):
+        self.bg = self.canvas.copy_from_bbox(self.ax.bbox)
+
+    def add_fig(self, title, ylabel):
+        c = self.parent().palette().button().color()
+        self.fig = Figure(facecolor=(c.redF(), c.greenF(), c.blueF()), edgecolor=(0,0,0))
+        self.ax = self.fig.add_axes([0.15, 0.1, 0.75, 0.75])
+        self.ax.set_ylabel(ylabel)
+        self.ax.grid(True)
+        self.ax.xaxis.set_ticks([])
+        #self.ax.set_color_cycle(color_cycle.values())
+        self.canvas = FigureCanvas(self.fig)
+        self.canvas.mpl_connect('draw_event', self.on_draw)
+        self.layout.addWidget(self.canvas, 10)
+
+    def add_line(self, key):
+        self.lines[key], = self.ax.plot([0], [0], label=key.title(), animated=True)
+
+    def update_lines(self):
+        if not self.bg:
+            return
+
+        self.canvas.restore_region(self.bg)
+        for key in self.data:
+            x,y = self.data[key]
+            self.ax.set_xlim(x[0], x[-1])
+            self.lines[key].set_data(x, y)
+            self.ax.draw_artist(self.lines[key])
+
+        self.canvas.blit(self.ax.bbox)
+
+    def update_data(self, key, x, y):
+        self.data[key] = (x, y)
+        self.rescale(max(y))
+
+    def clear_data(self):
+        if hasattr(self, "lines"):
+            # Remove lines from figure and reset color cycle
+            for line in self.lines.values():
+                line.remove()
+            self.ax.set_color_cycle(color_cycle.values())
+
+        # Clear data
+        self.bg = None
+        self.lines = {}
+        self.data = {}
+
+    def rescale(self, new_max):
+        if not self.ax._cachedRenderer:
+            return
+
+        # Read minimum (d) and maximum (max_view) from plot
+        d,max_view = self.ax.get_ybound()
+        current_max = self.current_max()
+
+        if new_max > max_view or (max_view > 10 and current_max*2 < max_view):
+            # Scale axes if new maximum has arrived
+            self.ax.relim()
+            self.ax.autoscale_view(scalex=False)
+            self.ax.draw_artist(self.ax.yaxis)
+            self.update_lines()
+            self.canvas.draw()
+
+    def current_max(self):
+        current_max = 0
+        for line in self.lines.values():
+            m = max(line.get_ydata())
+            current_max = m if m > current_max else current_max
+        return current_max
+
+
+class plotter(QWidget):
+    update_data = Signal(str, list, list)
+
     def __init__(self, parent=None):
-        super(plots, self).__init__(parent)
-        self.show()
+        super(plotter, self).__init__(parent)
 
-    def update(self, key, x, y):
-        pass
+        self.update_data.connect(self._update_data)
+        self.add_fig("Samples", "kbit/s")
+        self.do_layout()
+        self.startTimer(1000)
+
+    def timerEvent(self, event):
+        self.fig.update_lines()
+
+    def add_fig(self, title, ylabel):
+        fig = live_fig(title, ylabel, parent=self)
+        self.fig = fig
+
+    def do_layout(self):
+        hbox = QHBoxLayout()
+        hbox.addWidget(self.fig)
+        self.setLayout(hbox)
+
+    @Slot(str, list, list)
+    def _update_data(self, key, x, y):
+        if key not in self.fig.data:
+            self.fig.add_line(key)
+        self.fig.update_data(key, x, y)
 
 class stats(threading.Thread):
     def __init__(self):
@@ -34,8 +139,10 @@ class stats(threading.Thread):
         self.coded_last = 0
         self.fwd_last = 0
 
-    def set_gui(self, gui):
-        self.gui = gui
+        self.start()
+
+    def add_plotter(self, plotter):
+        self.plotter = plotter
 
     def run(self):
         while not self.end.is_set():
@@ -93,8 +200,8 @@ class stats(threading.Thread):
         self.bytes[key].pop(0)
         self.bytes[key].append(bytes)
 
-        if self.gui:
-            self.gui.update(key, self.timestamps, self.bytes[key])
+        if self.plotter:
+            self.plotter.update_data.emit(key, self.timestamps, self.bytes[key])
 
     def process_diff(self, key):
         diff = self.samples[key]
@@ -115,8 +222,8 @@ class stats(threading.Thread):
         self.diff[key].pop(0)
         self.diff[key].append(this_diff)
 
-        if self.gui:
-            self.gui.update(key, self.timestamps, self.bytes[key])
+        if self.plotter:
+            self.plotter.update_data.emit(key, self.timestamps, self.bytes[key])
 
     def sample_stats(self):
         cmd = ["gksudo", "ethtool -S bat0"]
@@ -158,7 +265,7 @@ class stats(threading.Thread):
             if not match:
                 continue
 
-            # Generate a key specific to this mac and counter
+            # Generate a key specific to this mac and count, ylim, scale, show, er
             mac_key = mac + " " + match[0][0]
 
             # We want integers to be integers
@@ -187,9 +294,9 @@ class stats(threading.Thread):
 
 if __name__ == "__main__":
     app = QApplication([])
-    p = plots()
+    p = plotter()
     s = stats()
-    s.set_gui(p)
-    s.start()
+    s.add_plotter(p)
+    p.show()
     app.exec_()
     s.stop()

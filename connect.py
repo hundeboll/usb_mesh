@@ -4,8 +4,6 @@
 import sys
 import subprocess
 import re
-import time
-import subprocess
 import threading
 from PySide.QtCore import *
 from PySide.QtGui import *

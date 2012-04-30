@@ -5,7 +5,6 @@ import avahi
 import dbus
 import dbus.mainloop.glib
 import subprocess
-import time
 from PySide.QtCore import *
 from PySide.QtGui import *
 
@@ -137,18 +136,13 @@ class node_actions(QWidget):
     def send_file(self):
         item = self.node_list.currentItem()
         data = item.data(Qt.UserRole)
-        self.log.appendPlainText("Pinging {} ({})".format(item.text(), data[7]))
+        self.log.appendPlainText("Sending file to {} ({})".format(item.text(), data[7]))
 
 
-class main_window(QMainWindow):
+class nodelist(QMainWindow):
     def __init__(self, parent=None):
-        super(main_window, self).__init__(parent)
+        super(nodelist, self).__init__(parent)
         self.setWindowTitle("Node Browser")
-
-        #self.wizard = connect.wizard()
-        #if not self.wizard.exec_():
-        #    print("Configuration canceled.")
-        #    sys.exit(0)
 
         self.add_log()
         self.node_list = QListWidget(self)
@@ -162,6 +156,10 @@ class main_window(QMainWindow):
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.appendPlainText("Select node from list")
+
+    def add_plotter(self, plotter):
+        self.plotter = plotter
+        self.centralWidget().layout().addWidget(self.plotter)
 
     def do_layout(self):
         vbox_left = QVBoxLayout()
