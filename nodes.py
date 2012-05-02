@@ -60,7 +60,15 @@ class discover:
         self.server.ResolveService(interface, protocol, name, stype, domain, avahi.PROTO_UNSPEC, 0, reply_handler=self.add_node, error_handler=self.print_error)
 
     def rm_service(self, interface, protocol, name, stype, domain, flags):
-        self.server.ResolveService(interface, protocol, name, stype, domain, avahi.PROTO_UNSPEC, 0, reply_handler=self.rm_node, error_handler=self.print_error)
+        print("Service removed:")
+        print(interface)
+        print(protocol)
+        print(name)
+        print(stype)
+        print(domain)
+        print(flags)
+        print
+        #self.server.ResolveService(interface, protocol, name, stype, domain, avahi.PROTO_UNSPEC, 0, reply_handler=self.rm_node, error_handler=self.print_error)
 
 
 class node_info(QWidget):
@@ -159,7 +167,9 @@ class nodelist(QMainWindow):
 
     def add_plotter(self, plotter):
         self.plotter = plotter
-        self.centralWidget().layout().addWidget(self.plotter)
+        l = self.centralWidget().layout()
+        l.addWidget(self.plotter)
+        l.setStretch(l.count()-1, 1)
 
     def do_layout(self):
         vbox_left = QVBoxLayout()
@@ -191,6 +201,8 @@ class nodelist(QMainWindow):
         vbox = QVBoxLayout()
         vbox.addWidget(splitter)
         vbox.addWidget(self.log)
+        vbox.setStretch(0, 1.5)
+        vbox.setStretch(1, 1.5)
 
         w = QWidget()
         w.setLayout(vbox)
@@ -207,5 +219,5 @@ class nodelist(QMainWindow):
 
 if __name__ == "__main__":
     a = QApplication(sys.argv)
-    m = main_window()
+    m = nodelist()
     a.exec_()

@@ -10,33 +10,49 @@ from PySide.QtCore import *
 from PySide.QtGui import *
 from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+from matplotlib import gridspec
 
 class live_fig(QWidget):
-    def __init__(self, title, ylabel, parent=None):
+    def __init__(self, title, ylabel, ylabel2=None, parent=None):
         super(live_fig, self).__init__(parent)
+        self.gs = gridspec.GridSpec(1, 2, width_ratios=[1,5])
         self.clear_data()
 
         self.layout = QHBoxLayout()
-        self.add_fig(title, ylabel)
+        self.add_fig(title, ylabel, ylabel2)
         self.setLayout(self.layout)
 
     def on_draw(self, event):
         self.bg = self.canvas.copy_from_bbox(self.ax.bbox)
 
-    def add_fig(self, title, ylabel):
+    def add_fig(self, title, ylabel, ylabel2=None):
         c = self.parent().palette().button().color()
+
         self.fig = Figure(facecolor=(c.redF(), c.greenF(), c.blueF()), edgecolor=(0,0,0))
-        self.ax = self.fig.add_axes([0.15, 0.1, 0.75, 0.75])
+        self.ax = self.fig.add_subplot(self.gs[1])
         self.ax.set_ylabel(ylabel)
         self.ax.grid(True)
         self.ax.xaxis.set_ticks([])
+        self.ax.set_aspect("auto")
+
+        if ylabel2:
+            ax2 = self.ax.twinx()
+            ax2.set_ylabel(ylabel2)
+
         #self.ax.set_color_cycle(color_cycle.values())
         self.canvas = FigureCanvas(self.fig)
         self.canvas.mpl_connect('draw_event', self.on_draw)
         self.layout.addWidget(self.canvas, 10)
 
     def add_line(self, key):
+        ax = self.fig.add_subplot(self.gs[0])
+        ax.set_axis_off()
+        ax.set_aspect("auto")
         self.lines[key], = self.ax.plot([0], [0], label=key.title(), animated=True)
+        l = ax.legend(self.lines.values(), self.lines.keys(), "right")
+        for t in l.get_texts():
+            t.set_fontsize('medium')
+        self.canvas.draw()
 
     def update_lines(self):
         if not self.bg:
@@ -98,27 +114,48 @@ class plotter(QWidget):
         super(plotter, self).__init__(parent)
 
         self.update_data.connect(self._update_data)
-        self.add_fig("Samples", "kbit/s")
+        self.add_fig("Samples", "kbit/s", "packets")
+        self.add_legend()
         self.do_layout()
         self.startTimer(1000)
 
     def timerEvent(self, event):
         self.fig.update_lines()
 
-    def add_fig(self, title, ylabel):
-        fig = live_fig(title, ylabel, parent=self)
+    def add_fig(self, title, ylabel, ylabel2=None):
+        fig = live_fig(title, ylabel, ylabel2, parent=self)
         self.fig = fig
 
+    def add_legend(self):
+        c = self.palette().button().color()
+        legend = {}
+        legend['fig'] = Figure(facecolor=(c.redF(), c.greenF(), c.blueF()), edgecolor=(0,0,0))
+        legend['canvas'] = FigureCanvas(legend['fig'])
+        #legend['canvas'].ax.set_aspect("auto")
+        self.legend = legend
+
     def do_layout(self):
-        hbox = QHBoxLayout()
-        hbox.addWidget(self.fig)
-        self.setLayout(hbox)
+        #splitter = QSplitter(Qt.Horizontal)
+        #splitter.addWidget(self.legend['canvas'])
+        #splitter.addWidget(self.fig)
+        #splitter.setStretchFactor(0,1)
+        #splitter.setStretchFactor(1,2)
+        l = QHBoxLayout()
+        l.addWidget(self.fig)
+        self.setLayout(l)
 
     @Slot(str, list, list)
     def _update_data(self, key, x, y):
         if key not in self.fig.data:
             self.fig.add_line(key)
+            self.add_line(key)
         self.fig.update_data(key, x, y)
+
+    def add_line(self, key):
+        handles,labels = self.fig.ax.get_legend_handles_labels()
+        self.legend['fig'].legend(handles, labels, ncol=1, loc='center left')
+        self.legend['canvas'].draw()
+
 
 class stats(threading.Thread):
     def __init__(self):
@@ -172,7 +209,6 @@ class stats(threading.Thread):
         self.process_rate("forward_bytes")
         self.process_rate("mgmt_tx_bytes")
         self.process_rate("iw tx bytes")
-        print(self.bytes["iw tx bytes"][-1])
 
     def add_timestamp(self, timestamp):
         if self.timestamps:

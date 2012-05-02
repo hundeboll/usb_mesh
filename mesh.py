@@ -18,11 +18,13 @@ def main():
     plotter = graph.plotter()
     stats = graph.stats()
     stats.add_plotter(plotter)
+    plotter.show()
     nodelist = nodes.nodelist()
     nodelist.add_plotter(plotter)
 
     a.exec_()
     stats.stop()
+    wizard.stop()
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import sys
+import os
 import subprocess
 import re
 import threading
@@ -262,9 +263,8 @@ class finish_page(QWizardPage):
     def __init__(self, parent=None):
         super(finish_page, self).__init__(parent)
         self.parent = parent
-        self.wpa_config = "/tmp/wpa_tmp.conf"
-        self.avahi_config = "/tmp/avahi_tmp.conf"
         self.complete = False
+        self.pidgin = None
 
         self.setTitle("Applying Configuration")
         self.setSubTitle("Making your choices real.")
@@ -294,6 +294,7 @@ class finish_page(QWizardPage):
 
     def apply_config(self):
         dev,data = self.get_data()
+        self.construct_config_paths(dev)
         self.ifdown(dev)
         self.write_wpa_config(data)
         self.start_wpa(dev)
@@ -303,6 +304,8 @@ class finish_page(QWizardPage):
         self.ifup("bat0")
         self.write_avahi_config()
         self.start_avahi()
+        self.write_pidgin_config()
+        self.start_pidgin()
         self.setComplete(True)
 
     def get_data(self):
@@ -327,6 +330,14 @@ class finish_page(QWizardPage):
             data[2] = "Ad-hoc"
 
         return dev,data
+
+    def construct_config_paths(self, dev):
+        self.wpa_config = "/tmp/wpa_{}_tmp.conf".format(dev)
+        self.avahi_config = "/tmp/avahi_{}_tmp.conf".format(dev)
+        self.pidgin_path = "/tmp/purple_{}_tmp".format(dev)
+        self.pidgin_config = self.pidgin_path + "/accounts.xml"
+        if not os.path.exists(self.pidgin_path):
+            os.mkdir(self.pidgin_path)
 
     def ifdown(self, dev):
         cmd = ['gksudo', 'ifconfig', dev, 'down']
@@ -391,6 +402,10 @@ class finish_page(QWizardPage):
         p = subprocess.Popen(cmd)
         p.wait()
 
+        cmd = ['gksudo', 'batctl', 'nc', 'st', '1']
+        p = subprocess.Popen(cmd)
+        p.wait()
+
         self.log.appendPlainText("Acquiring IP address")
         cmd = ['gksudo', 'avahi-autoipd --force-bind --daemonize --wait bat0']
         p = subprocess.Popen(cmd)
@@ -412,7 +427,7 @@ class finish_page(QWizardPage):
         n += "\n"
         n += "[publish]\n"
         n += "disable-publishing=no\n"
-        n += "disable-user-service-publishing=yes\n"
+        n += "disable-user-service-publishing=no\n"
         n += "add-service-cookie=no\n"
         n += "publish-addresses=yes\n"
         n += "publish-hinfo=no\n"
@@ -439,7 +454,38 @@ class finish_page(QWizardPage):
         cmd = ['gksudo', 'avahi-daemon -f {} --daemonize'.format(self.avahi_config)]
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         p.wait()
-        print(p.communicate())
+
+    def write_pidgin_config(self):
+        self.log.appendPlainText("Writing Pidgin configuration")
+
+        s = "<?xml version='1.0' encoding='UTF-8' ?>\n"
+        s += "\n"
+        s += "<account version='1.0'>\n"
+        s += "\t<account>\n"
+        s += "\t\t<protocol>prpl-bonjour</protocol>\n"
+        s += "\t\t<name>mesh</name>\n"
+        s += "\t\t<settings>\n"
+        s += "\t\t\t<setting name='port' type='int'>5298</setting>\n"
+        s += "\t\t\t<setting name='first' type='string'>{} {}</setting>\n".format(self.field("user_name"), self.field("user_org"))
+        s += "\t\t</settings>\n"
+        s += "\t\t<settings ui='gtk-gaim'>\n"
+        s += "\t\t\t<setting name='auto-login' type='bool'>1</setting>\n"
+        s += "\t\t</settings>\n"
+        s += "\t</account>\n"
+        s += "</account>\n"
+
+        f = open(self.pidgin_config, "w")
+        f.write(s)
+        f.close()
+
+    def start_pidgin(self):
+        self.log.appendPlainText("Starting Pidgin")
+        cmd = ["pidgin", "-m", "-c", self.pidgin_path]
+        self.pidgin = subprocess.Popen(cmd)
+
+    def stop(self):
+        if self.pidgin:
+            self.pidgin.kill()
 
 
 class wizard(QWizard):
@@ -456,11 +502,15 @@ class wizard(QWizard):
 
         self.show()
 
+    def stop(self):
+        self.page(self.finish_id).stop()
+
     def set_object(self, name, obj):
         self.objects[name] = obj
 
     def get_object(self, name):
         return self.objects.get(name, None)
+
 
 class mesh(QApplication):
     def __init__(self, argv):
