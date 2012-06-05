@@ -34,7 +34,7 @@ class intro_page(QWizardPage):
 
         self.setTitle("Mesh Configuration Wizard")
 
-        text = open('intro.txt').read()
+        text = open(os.path.join(sys.path[0], 'intro.txt')).read()
         intro = QLabel(text)
         intro.setWordWrap(True)
         intro.setTextFormat(Qt.RichText)
@@ -509,7 +509,7 @@ class wizard(QWizard):
         super(wizard, self).__init__(parent)
         self.setWindowTitle("Mesh Configuration Wizard")
         self.setOption(QWizard.NoBackButtonOnStartPage, True)
-        self.setPixmap(QWizard.WatermarkPixmap, 'logo.png')
+        self.setPixmap(QWizard.WatermarkPixmap, os.path.join(sys.path[0], 'logo.png'))
 
         self.objects = {}
 
