@@ -131,18 +131,12 @@ class plotter(QWidget):
         legend = {}
         legend['fig'] = Figure(facecolor=(c.redF(), c.greenF(), c.blueF()), edgecolor=(0,0,0))
         legend['canvas'] = FigureCanvas(legend['fig'])
-        #legend['canvas'].ax.set_aspect("auto")
         self.legend = legend
 
     def do_layout(self):
-        #splitter = QSplitter(Qt.Horizontal)
-        #splitter.addWidget(self.legend['canvas'])
-        #splitter.addWidget(self.fig)
-        #splitter.setStretchFactor(0,1)
-        #splitter.setStretchFactor(1,2)
-        l = QHBoxLayout()
-        l.addWidget(self.fig)
-        self.setLayout(l)
+        b = QHBoxLayout()
+        b.addWidget(self.fig)
+        self.setLayout(b)
 
     @Slot(str, list, list)
     def _update_data(self, key, x, y):
@@ -209,6 +203,8 @@ class stats(threading.Thread):
         self.process_rate("forward_bytes")
         self.process_rate("mgmt_tx_bytes")
         self.process_rate("iw tx bytes")
+        self.process_rate("nc_code_bytes")
+        self.process_rate("nc_decode_bytes")
 
     def add_timestamp(self, timestamp):
         if self.timestamps:

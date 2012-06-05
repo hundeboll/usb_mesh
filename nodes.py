@@ -5,10 +5,11 @@ import avahi
 import dbus
 import dbus.mainloop.glib
 import subprocess
+import threading
+import signal
+import re
 from PySide.QtCore import *
 from PySide.QtGui import *
-
-import connect
 
 
 class discover:
@@ -38,8 +39,11 @@ class discover:
 
     def add_node(self, *args):
         name = args[2].rsplit("[")[0].strip()
+        mac = args[2].rsplit("[")[1].strip("]")
+        args += (self.client_to_orig(mac), False, False, False, False)
         item = QListWidgetItem(name, self.node_list)
         item.setData(Qt.UserRole, args)
+        item.setIcon(QIcon.fromTheme("network-idle"))
 
     def rm_node(self, *args):
         name = args[2].rsplit("[")[0]
@@ -60,15 +64,18 @@ class discover:
         self.server.ResolveService(interface, protocol, name, stype, domain, avahi.PROTO_UNSPEC, 0, reply_handler=self.add_node, error_handler=self.print_error)
 
     def rm_service(self, interface, protocol, name, stype, domain, flags):
-        print("Service removed:")
-        print(interface)
-        print(protocol)
-        print(name)
-        print(stype)
-        print(domain)
-        print(flags)
-        print
-        #self.server.ResolveService(interface, protocol, name, stype, domain, avahi.PROTO_UNSPEC, 0, reply_handler=self.rm_node, error_handler=self.print_error)
+        print("Service removed")
+
+    def client_to_orig(self, mac):
+        tg = open("/sys/kernel/debug/batman_adv/bat0/transtable_global").read()
+        for line in tg.split("\n"):
+            if mac in line:
+                break
+        else:
+            return None
+
+        match = re.findall(" \* [0-9a-f:]{17}  \( +\d+\) via ([0-9a-f:]{17})", line)
+        return match[0] if match else None
 
 
 class node_info(QWidget):
@@ -80,6 +87,7 @@ class node_info(QWidget):
         self.add_field("Name")
         self.add_field("MAC")
         self.add_field("IPv4")
+        self.add_field("Orig")
 
         self.do_layout()
 
@@ -98,7 +106,7 @@ class node_info(QWidget):
         if n not in self.fields:
             print("Field not found: {}".format(name))
             return
-        self.fields[n][1].setText(text)
+        self.fields[n][1].setText(str(text))
 
     def do_layout(self):
         grid = QGridLayout()
@@ -114,21 +122,41 @@ class node_info(QWidget):
         self.set_field("name", name)
         self.set_field("mac", mac)
         self.set_field("ipv4", data[7])
+        self.set_field("orig", data[11])
 
 
 class node_actions(QWidget):
+    ping_log = Signal(str)
+
     def __init__(self, node_list, log, parent=None):
         super(node_actions, self).__init__(parent)
         self.node_list = node_list
         self.log = log
         self.buttons = []
-        self.add_button("Ping", self.ping_node)
+        self.block_path = "/sys/kernel/debug/batman_adv/bat0/block_ogm"
+        self.allow_count = 0
+        self.add_button("Ping", self.ping_node, checkable=True)
+        self.add_button("Block path", self.block_node, checkable=True)
+        self.add_button("Pass path", self.pass_node, checkable=True)
+        self.ping_log.connect(self.ping_node_line)
         self.do_layout()
 
-    def add_button(self, name, handler):
+    def add_button(self, name, handler, checkable=False):
         b = QPushButton(name)
         b.clicked.connect(handler)
+        if checkable: b.setCheckable(True)
         self.buttons.append(b)
+
+    def get_button(self, name):
+        for button in self.buttons:
+            if button.text() == name:
+                return button
+
+    def set_buttons(self, data):
+        i = 0
+        for button in self.buttons:
+            button.setChecked(data[12+i])
+            i += 1
 
     def do_layout(self):
         vbox = QVBoxLayout()
@@ -137,14 +165,95 @@ class node_actions(QWidget):
         self.setLayout(vbox)
 
     def ping_node(self):
+        button = self.get_button("Ping")
         item = self.node_list.currentItem()
         data = item.data(Qt.UserRole)
-        self.log.appendPlainText("Pinging {} ({})".format(item.text(), data[7]))
+        data[12] = button.isChecked()
+        item.setData(Qt.UserRole, data)
+        if button.isChecked():
+            t = threading.Thread(None, self.ping_node_thread, kwargs={'data': data})
+            t.start()
+        else:
+            self.ping_process.send_signal(signal.SIGINT)
 
-    def send_file(self):
+    def ping_node_thread(self, data):
+        ip = data
+        cmd = ["ping", data[7]]
+        self.ping_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        while self.ping_process.poll() == None:
+            line = self.ping_process.stdout.readline()
+            self.ping_log.emit(line)
+
+        stdout,stderr = self.ping_process.communicate()
+        for line in stdout.split("\n"):
+            self.ping_log.emit(line)
+
+    @Slot(str)
+    def ping_node_line(self, line):
+            self.log.appendPlainText(line.strip())
+
+    def block_node_exec(self, mac):
+        cmd = ['gksudo', './block.py {} drop'.format(mac)]
+        p = subprocess.Popen(cmd)
+        p.wait()
+
+    def allow_node_exec(self, mac):
+        cmd = ['gksudo', './block.py {} allow'.format(mac)]
+        p = subprocess.Popen(cmd)
+        p.wait()
+
+    def del_node_exec(self, mac):
+        cmd = ['gksudo', './block.py {} del'.format(mac)]
+        p = subprocess.Popen(cmd)
+        p.wait()
+
+    def block_node(self):
+        button = self.get_button("Block path")
         item = self.node_list.currentItem()
         data = item.data(Qt.UserRole)
-        self.log.appendPlainText("Sending file to {} ({})".format(item.text(), data[7]))
+        data[13] = button.isChecked()
+        item.setData(Qt.UserRole, data)
+        if button.isChecked():
+            pass_button = self.get_button("Pass path")
+            if pass_button.isChecked():
+                pass_button.setChecked(False)
+                self.pass_node()
+
+            self.block_node_exec(data[11])
+            item.setIcon(QIcon.fromTheme("stock_delete"))
+            self.log.appendPlainText("Blocking OGMs directly from '{}'".format(item.text()))
+        else:
+            self.del_node_exec(data[11])
+            item.setIcon(QIcon.fromTheme("network-idle"))
+            self.log.appendPlainText("Unblocking OGMs directly from '{}'".format(item.text()))
+
+    def pass_node(self):
+        button = self.get_button("Pass path")
+        item = self.node_list.currentItem()
+        data = item.data(Qt.UserRole)
+        data[14] = button.isChecked()
+        item.setData(Qt.UserRole, data)
+        if button.isChecked():
+            button = self.get_button("Block path")
+            if button.isChecked():
+                button.setChecked(False)
+                self.block_node()
+
+            self.allow_node_exec(data[11])
+            item.setIcon(QIcon.fromTheme("emblem-default"))
+            self.allow_count += 1
+            if self.allow_count == 1:
+                self.log.appendPlainText("Allowing OGMs directly from '{}' only".format(item.text()))
+            else:
+                self.log.appendPlainText("Allowing OGMs direclty from '{}' also".format(item.text()))
+        else:
+            self.del_node_exec(data[11])
+            item.setIcon(QIcon.fromTheme("network-idle"))
+            self.allow_count -= 1
+            if self.allow_count == 0:
+                self.log.appendPlainText("Allowing OGMs from all non-blocked nodes")
+            else:
+                self.log.appendPlainText("Disallowing OGMs directly from '{}'".format(item.text()))
 
 
 class nodelist(QMainWindow):
@@ -215,6 +324,7 @@ class nodelist(QMainWindow):
         node_text = self.node_list.currentItem().text()
         node_data = self.node_list.currentItem().data(Qt.UserRole)
         self.node_info.set_node(node_text, node_data)
+        self.node_actions.set_buttons(node_data)
 
 
 if __name__ == "__main__":
