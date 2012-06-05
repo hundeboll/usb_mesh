@@ -22,9 +22,14 @@ class intro_page(QWizardPage):
         super(intro_page, self).__init__(parent)
 
         self.setTitle("Mesh Configuration Wizard")
-        self.setSubTitle("This wizard will help you configure your network.")
+
+        text = open('intro.txt').read()
+        intro = QLabel(text)
+        intro.setWordWrap(True)
+        intro.setTextFormat(Qt.RichText)
 
         layout = QVBoxLayout()
+        layout.addWidget(intro)
         self.setLayout(layout)
 
 
@@ -33,8 +38,8 @@ class config_page(QWizardPage):
         super(config_page, self).__init__(parent)
         self.parent = parent
 
-        self.setTitle("Personal Information")
-        self.setSubTitle("Your information visible to other users.")
+        self.setTitle("Network Selection")
+        self.setSubTitle("Enter your name and organization and select a network to connect to.")
         self.setCommitPage(True)
 
         name_edit  = QLineEdit()
@@ -493,6 +498,7 @@ class wizard(QWizard):
         super(wizard, self).__init__(parent)
         self.setWindowTitle("Mesh Configuration Wizard")
         self.setOption(QWizard.NoBackButtonOnStartPage, True)
+        self.setPixmap(QWizard.WatermarkPixmap, 'logo.png')
 
         self.objects = {}
 

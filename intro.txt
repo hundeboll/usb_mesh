@@ -1,0 +1,9 @@
+This configuration wizard lets you connect to an existing mesh network with only a few clicks.<br />
+<br />
+Once connected, you will be able to perform several actions to use and/or modify the network:
+<ul>
+  <li>Chat with other users</li>
+  <li>Send files to other users</li>
+  <li>Modify the topology of the network</li>
+</ul>
+Please send any comments/suggestions/bugs to <a href="mailto:mhu@es.aau.dk">Martin Hundeb&oslash;ll &lt;mhu@es.aau.dk&gt;</a>.
