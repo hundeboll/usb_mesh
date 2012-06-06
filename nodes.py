@@ -12,6 +12,7 @@
 # - Martin Hundebøll
 # ----------------------------------------------------------------------------
 
+import os
 import sys
 import avahi
 import dbus
@@ -205,17 +206,17 @@ class node_actions(QWidget):
             self.log.appendPlainText(line.strip())
 
     def block_node_exec(self, mac):
-        cmd = ['gksudo', './block.py {} drop'.format(mac)]
+        cmd = ['gksudo', '{} {} drop'.format(os.path.join(sys.path[0], 'block.py'), mac)]
         p = subprocess.Popen(cmd)
         p.wait()
 
     def allow_node_exec(self, mac):
-        cmd = ['gksudo', './block.py {} allow'.format(mac)]
+        cmd = ['gksudo', '{} {} allow'.format(os.path.join(sys.path[0], 'block.py'), mac)]
         p = subprocess.Popen(cmd)
         p.wait()
 
     def del_node_exec(self, mac):
-        cmd = ['gksudo', './block.py {} del'.format(mac)]
+        cmd = ['gksudo', '{} {} del'.format(os.path.join(sys.path[0], 'block.py'), mac)]
         p = subprocess.Popen(cmd)
         p.wait()
 
