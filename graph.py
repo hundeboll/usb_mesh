@@ -231,6 +231,9 @@ class stats(threading.Thread):
         self.timestamps = times
 
     def process_rate(self, key):
+        if key not in self.samples:
+            return
+
         this_bytes = self.samples[key]*8 / 1024
         if key not in self.bytes_last:
             self.bytes_last[key] = this_bytes
