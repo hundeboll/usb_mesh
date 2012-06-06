@@ -212,9 +212,9 @@ class stats(threading.Thread):
         self.samples.update(sample)
 
     def process_samples(self):
-        self.process_rate("forward_bytes")
-        self.process_rate("mgmt_tx_bytes")
+        self.process_rate("iw rx bytes")
         self.process_rate("iw tx bytes")
+        self.process_rate("forward_bytes")
         self.process_rate("nc_code_bytes")
         self.process_rate("nc_decode_bytes")
 
