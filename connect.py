@@ -290,6 +290,7 @@ class config_page(QWizardPage):
 class create_page(QWizardPage):
     def __init__(self, parent=None):
         super(create_page, self).__init__(parent)
+        self.parent = parent
         self.setTitle("Create New Network")
         self.setSubTitle("And let other join you")
 
@@ -303,7 +304,7 @@ class create_page(QWizardPage):
         for freq in ["2412", "2417", "2422", "2427", "2432", "2437", "2442", "2447", "2452", "2457", "2462", "2467", "2472", "2484"]:
             self.channel_combo.addItem(freq)
         self.channel_label.setBuddy(self.channel_combo)
-        self.registerField("network_channel", self.channel_combo)
+        self.parent.set_object("network_channel", self.channel_combo)
 
         grid = QGridLayout()
         grid.addWidget(self.name_label, 0,0)
@@ -385,7 +386,7 @@ class finish_page(QWizardPage):
             self.log.appendPlainText("Creating Mesh Network")
             name = self.field("network_name")
             mode = "Ad-hoc"
-            freq = self.field("network_channel")
+            freq = self.parent.get_object("network_channel").currentText()
             data = [None, freq, mode, None, name, "None"]
             self.creator = True
         elif data[2] == 'ESS':
