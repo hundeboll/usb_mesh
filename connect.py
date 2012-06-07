@@ -531,7 +531,7 @@ class finish_page(QWizardPage):
         self.log.appendPlainText("Starting Topology Server")
         pwd = os.getcwd()
         os.chdir(os.path.join(sys.path[0], "web"))
-        cmd = ['python2', '-m', 'CGIHTTPServer', '8000', '&']
+        cmd = ['python2', '-m', 'CGIHTTPServer', '8000']
         subprocess.Popen(cmd, stdout=subprocess.PIPE)
         os.chdir(pwd)
 
@@ -540,7 +540,7 @@ class finish_page(QWizardPage):
             return
 
         self.log.appendPlainText("Publishing Topology Server")
-        cmd = ['avahi-publish-service', 'Topology Graph', '_http._tcp', '8000', '/topology.html', '&']
+        cmd = ['avahi-publish-service', 'Topology Graph', '_http._tcp', '8000', '/topology.html']
         subprocess.Popen(cmd, stdout=subprocess.PIPE)
 
     def write_pidgin_config(self):
