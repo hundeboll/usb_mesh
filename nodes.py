@@ -139,20 +139,29 @@ class node_info(QWidget):
 
 
 class node_actions(QWidget):
-    ping_log = Signal(str)
+    log_add_line = Signal(str)
 
     def __init__(self, node_list, log, parent=None):
         super(node_actions, self).__init__(parent)
         self.node_list = node_list
         self.log = log
         self.buttons = []
-        self.block_path = "/sys/kernel/debug/batman_adv/bat0/block_ogm"
+        self.ping_pids = {}
+        self.iperf_pids = {}
+        t = threading.Thread(None, self.iperf_server_thread)
+        t.daemon = True
+        t.start()
         self.allow_count = 0
         self.add_button("Ping", self.ping_node, checkable=True)
+        self.add_button("Iperf", self.iperf_node, checkable=True)
         self.add_button("Block path", self.block_node, checkable=True)
         self.add_button("Pass path", self.pass_node, checkable=True)
-        self.ping_log.connect(self.ping_node_line)
+        self.log_add_line.connect(self.log_add_line_cb)
         self.do_layout()
+
+    def closeEvent(self, e):
+        if self.iperf_server:
+            self.iperf_server.kill()
 
     def add_button(self, name, handler, checkable=False):
         b = QPushButton(name)
@@ -177,6 +186,11 @@ class node_actions(QWidget):
             vbox.addWidget(b)
         self.setLayout(vbox)
 
+    def iperf_server_thread(self):
+        cmd = ["iperf", "-su"]
+        self.iperf_server = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+        self.iperf_server.wait()
+
     def ping_node(self):
         button = self.get_button("Ping")
         item = self.node_list.currentItem()
@@ -187,22 +201,44 @@ class node_actions(QWidget):
             t = threading.Thread(None, self.ping_node_thread, kwargs={'data': data})
             t.start()
         else:
-            self.ping_process.send_signal(signal.SIGINT)
+            self.ping_pids[data[2]].send_signal(signal.SIGINT)
 
     def ping_node_thread(self, data):
-        ip = data
         cmd = ["ping", data[7]]
-        self.ping_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        while self.ping_process.poll() == None:
-            line = self.ping_process.stdout.readline()
-            self.ping_log.emit(line)
+        self.ping_pids[data[2]] = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        while self.ping_pids[data[2]].poll() == None:
+            line = self.ping_pids[data[2]].stdout.readline()
+            self.log_add_line.emit(line)
 
-        stdout,stderr = self.ping_process.communicate()
+        stdout,stderr = self.ping_pids[data[2]].communicate()
         for line in stdout.split("\n"):
-            self.ping_log.emit(line)
+            self.log_add_line.emit(line)
+
+    def iperf_node(self):
+        button = self.get_button("Iperf")
+        item = self.node_list.currentItem()
+        data = item.data(Qt.UserRole)
+        data[13] = button.isChecked()
+        item.setData(Qt.UserRole, data)
+        if button.isChecked():
+            t = threading.Thread(None, self.iperf_node_thread, kwargs={'data': data})
+            t.start()
+        else:
+            pid = self.iperf_pids[data[2]]
+            if pid.poll() == None:
+                pid.send_signal(signal.SIGINT)
+
+    def iperf_node_thread(self, data):
+        cmd = ["iperf", "-c", data[7], "-udb100k"]
+        print(cmd)
+        self.iperf_pids[data[2]] = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        while self.iperf_pids[data[2]].poll() == None:
+            line = self.iperf_pids[data[2]].stdout.readline()
+            self.log_add_line.emit(line)
+        self.get_button("Iperf").setChecked(False)
 
     @Slot(str)
-    def ping_node_line(self, line):
+    def log_add_line_cb(self, line):
             self.log.appendPlainText(line.strip())
 
     def block_node_exec(self, mac):
@@ -224,7 +260,7 @@ class node_actions(QWidget):
         button = self.get_button("Block path")
         item = self.node_list.currentItem()
         data = item.data(Qt.UserRole)
-        data[13] = button.isChecked()
+        data[14] = button.isChecked()
         item.setData(Qt.UserRole, data)
         if button.isChecked():
             pass_button = self.get_button("Pass path")
@@ -244,7 +280,7 @@ class node_actions(QWidget):
         button = self.get_button("Pass path")
         item = self.node_list.currentItem()
         data = item.data(Qt.UserRole)
-        data[14] = button.isChecked()
+        data[15] = button.isChecked()
         item.setData(Qt.UserRole, data)
         if button.isChecked():
             button = self.get_button("Block path")
@@ -281,6 +317,9 @@ class nodelist(QMainWindow):
         self.node_actions = node_actions(self.node_list, self.log, self)
         self.discover = discover(self.node_list)
         self.do_layout()
+
+    def closeEvent(self, e):
+        self.node_actions.closeEvent(e)
 
     def add_log(self):
         self.log = QPlainTextEdit()
