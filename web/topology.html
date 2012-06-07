@@ -1,0 +1,41 @@
+<html>
+    <head>
+        <script type="text/javascript" src="/dracula/raphael-min.js"></script>
+        <script type="text/javascript" src="/dracula/dracula_graffle.js"></script>
+        <script type="text/javascript" src="/dracula/jquery-1.4.2.min.js"></script>
+        <script type="text/javascript" src="/dracula/dracula_graph.js"></script>
+        <script type="text/javascript" src="/dojo.js"></script>
+
+<script type="text/javascript">//<![CDATA[
+    var xArgs = {
+        url: "/cgi-bin/vis.py",
+        handleAs: "json",
+        load: function(data) {
+            var g = new Graph();
+
+            for (var i = 0; i < (data.length-1); i++)
+            {
+                // node->node
+                if (data[i].router && data[i].neighbor)
+                    g.addEdge(data[i].router, data[i].neighbor,
+                            { label: data[i].label, directed: true, stroke: '#aaaaaa' });
+            }
+
+            var canvas = document.getElementById('canvas');
+            var layouter = new Graph.Layout.Spring(g);
+            layouter.layout();
+
+            var renderer = new Graph.Renderer.Raphael(canvas.id, g, canvas.offsetWidth, canvas.offsetHeight);
+            renderer.draw();
+        },
+        error: function(error) {
+            document.write("An unexpected error occurred: " + error);
+        }
+    }
+    var deferred = dojo.xhrGet(xArgs);
+//]]></script>
+    </head>
+    <body>
+        <div id="canvas" style="min-width:800px; min-height:800px"></div>
+    </body>
+</html>

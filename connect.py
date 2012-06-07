@@ -318,6 +318,7 @@ class finish_page(QWizardPage):
         self.parent = parent
         self.complete = False
         self.pidgin = None
+        self.creator = False
 
         self.setTitle("Applying Configuration")
         self.setSubTitle("Making your choices real.")
@@ -357,6 +358,7 @@ class finish_page(QWizardPage):
         self.ifup("bat0")
         self.write_avahi_config()
         self.start_avahi()
+        self.start_server()
         self.write_pidgin_config()
         self.start_pidgin()
         self.setComplete(True)
@@ -382,6 +384,7 @@ class finish_page(QWizardPage):
             mode = "Ad-hoc"
             freq = self.field("network_channel")
             data = [None, freq, mode, None, name, "None"]
+            self.creator = True
         elif data[2] == 'ESS':
             data[2] = "Managed"
         elif data[2] == 'IBSS':
@@ -464,6 +467,11 @@ class finish_page(QWizardPage):
         p = subprocess.Popen(cmd)
         p.wait()
 
+        if self.creator:
+            cmd = ['gksudo', 'batctl', 'vm', 'server']
+            p = subprocess.Popen(cmd)
+            p.wait()
+
         self.log.appendPlainText("Acquiring IP address")
         cmd = ['gksudo', 'avahi-autoipd --force-bind --daemonize --wait bat0']
         p = subprocess.Popen(cmd)
@@ -512,6 +520,17 @@ class finish_page(QWizardPage):
         cmd = ['gksudo', 'avahi-daemon -f {} --daemonize'.format(self.avahi_config)]
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         p.wait()
+
+    def start_server(self):
+        if not self.creator:
+            return
+
+        self.log.appendPlainText("Starting Topology Server")
+        pwd = os.getcwd()
+        os.chdir(os.path.join(sys.path[0], "web"))
+        cmd = ['python2', '-m', 'CGIHTTPServer', '8000', '&']
+        subprocess.Popen(cmd, stdout=subprocess.PIPE)
+        os.chdir(pwd)
 
     def write_pidgin_config(self):
         self.log.appendPlainText("Writing Pidgin configuration")
