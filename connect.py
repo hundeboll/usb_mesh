@@ -127,6 +127,12 @@ class config_page(QWizardPage):
         grid.addWidget(self.key_edit, 5,1)
         self.setLayout(grid)
 
+    def nextId(self):
+        if self.create_new:
+            return wizard.create
+        else:
+            return wizard.finish
+
     def find_devices_thread(self):
         if hasattr(self, "t") and self.t.is_alive():
             return
@@ -192,6 +198,10 @@ class config_page(QWizardPage):
     def update_networks(self, idx):
         self.model.removeRows(0, self.model.rowCount())
 
+        items = [QStandardItem(d) for d in ["<create new>", "Ad-hoc", "None"]]
+        [item.setData([]) for item in items]
+        self.model.appendRow(items)
+
         data = self.dev_combo.itemData(idx)
         if not data:
             return
@@ -200,7 +210,7 @@ class config_page(QWizardPage):
             mode = "Ad-hoc" if row[2] == "IBSS" else "Infra"
             enc  = row[5]
             signal = row[3]
-            items = [QStandardItem(data) for data in [ssid, mode, enc]]
+            items = [QStandardItem(d) for d in [ssid, mode, enc]]
             [item.setData(row) for item in items]
             self.model.appendRow(items)
 
@@ -255,12 +265,14 @@ class config_page(QWizardPage):
 
         data = model.itemFromIndex(idx).data()
 
-        if data[5] != "None":
+        if data and data[5] != "None":
             self.key_edit.setVisible(True)
             self.key_label.setVisible(True)
         else:
             self.key_edit.setVisible(False)
             self.key_label.setVisible(False)
+
+        self.create_new = not data
 
     def filter_adhoc_networks(self, b):
         f = "Ad-hoc" if b else ""
@@ -273,6 +285,31 @@ class config_page(QWizardPage):
         self.enc_proxy.setFilterRegExp(QRegExp(f))
         self.enc_proxy.setFilterKeyColumn(2)
         self.view.resizeColumnsToContents()
+
+class create_page(QWizardPage):
+    def __init__(self, parent=None):
+        super(create_page, self).__init__(parent)
+        self.setTitle("Create New Network")
+        self.setSubTitle("And let other join you")
+
+        self.name_label = QLabel("&Network Name:")
+        self.name_edit = QLineEdit()
+        self.name_label.setBuddy(self.name_edit)
+        self.registerField("network_name", self.name_edit)
+
+        self.channel_label = QLabel("&Channel:")
+        self.channel_combo = QComboBox()
+        for freq in ["2412", "2417", "2422", "2427", "2432", "2437", "2442", "2447", "2452", "2457", "2462", "2467", "2472", "2484"]:
+            self.channel_combo.addItem(freq)
+        self.channel_label.setBuddy(self.channel_combo)
+        self.registerField("network_channel", self.channel_combo)
+
+        grid = QGridLayout()
+        grid.addWidget(self.name_label, 0,0)
+        grid.addWidget(self.name_edit, 0,1)
+        grid.addWidget(self.channel_label, 1,0)
+        grid.addWidget(self.channel_combo, 1,1)
+        self.setLayout(grid)
 
 
 class finish_page(QWizardPage):
@@ -340,7 +377,12 @@ class finish_page(QWizardPage):
             model = model.sourceModel()
         data = model.itemFromIndex(idx).data()
 
-        if data[2] == 'ESS':
+        if not data:
+            name = self.field("network_name")
+            mode = "Ad-hoc"
+            freq = self.field("network_channel")
+            data = [None, freq, mode, None, name, "None"]
+        elif data[2] == 'ESS':
             data[2] = "Managed"
         elif data[2] == 'IBSS':
             data[2] = "Ad-hoc"
@@ -505,6 +547,11 @@ class finish_page(QWizardPage):
 
 
 class wizard(QWizard):
+    intro = 1
+    config = 2
+    create = 3
+    finish = 4
+
     def __init__(self, parent=None):
         super(wizard, self).__init__(parent)
         self.setWindowTitle("Mesh Configuration Wizard")
@@ -513,9 +560,10 @@ class wizard(QWizard):
 
         self.objects = {}
 
-        self.intro_id  = self.addPage(intro_page(self))
-        self.config_id = self.addPage(config_page(self))
-        self.finish_id = self.addPage(finish_page(self))
+        self.intro_id  = self.setPage(self.intro, intro_page(self))
+        self.config_id = self.setPage(self.config, config_page(self))
+        self.create_id = self.setPage(self.create, create_page(self))
+        self.finish_id = self.setPage(self.finish, finish_page(self))
 
         self.show()
 
