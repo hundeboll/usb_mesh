@@ -48,6 +48,7 @@ class config_page(QWizardPage):
     def __init__(self, parent=None):
         super(config_page, self).__init__(parent)
         self.parent = parent
+        self.create_new = False
 
         self.setTitle("Network Selection")
         self.setSubTitle("Enter your name and organization and select a network to connect to.")
@@ -198,10 +199,6 @@ class config_page(QWizardPage):
     def update_networks(self, idx):
         self.model.removeRows(0, self.model.rowCount())
 
-        items = [QStandardItem(d) for d in ["<create new>", "Ad-hoc", "None"]]
-        [item.setData([]) for item in items]
-        self.model.appendRow(items)
-
         data = self.dev_combo.itemData(idx)
         if not data:
             return
@@ -213,6 +210,10 @@ class config_page(QWizardPage):
             items = [QStandardItem(d) for d in [ssid, mode, enc]]
             [item.setData(row) for item in items]
             self.model.appendRow(items)
+
+        items = [QStandardItem(d) for d in ["<create new>", "Ad-hoc", "None"]]
+        [item.setData([]) for item in items]
+        self.model.appendRow(items)
 
         self.view.horizontalHeader().setStretchLastSection(True)
         self.view.resizeColumnsToContents()

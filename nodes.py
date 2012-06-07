@@ -26,9 +26,9 @@ from PySide.QtGui import *
 
 
 class discover:
-    def __init__(self, node_list, topology_label):
+    def __init__(self, node_list, topology_button):
         self.node_list = node_list
-        self.topology_label = topology_label
+        self.topology_button = topology_button
         self.check_avahi()
         self.connect_avahi()
 
@@ -66,9 +66,8 @@ class discover:
 
     def add_www(self, *args):
         path = "".join(chr(b) for b in args[9][0])
-        self.topology_label.setOpenExternalLinks(True)
-        self.topology_label.setTextFormat(Qt.RichText)
-        self.topology_label.setText('<a href="http://{}:{}{}">{}</a>'.format(args[7], args[8], path, args[2]))
+        self.topology_button.setEnabled(True)
+        self.topology_graph = 'http://{}:{}{}'.format(args[7], args[8], path)
 
     def rm_node(self, *args):
         name = args[2].rsplit("[")[0]
@@ -330,10 +329,12 @@ class nodelist(QMainWindow):
         self.add_log()
         self.node_list = QListWidget(self)
         self.node_list.clicked.connect(self.node_selected)
-        self.topology_label = QLabel("")
+        self.topology_button = QPushButton("Tolopgy Graph")
+        self.topology_button.setEnabled(False)
+        self.topology_button.clicked.connect(self.open_url)
         self.node_info = node_info(self)
         self.node_actions = node_actions(self.node_list, self.log, self)
-        self.discover = discover(self.node_list, self.topology_label)
+        self.discover = discover(self.node_list, self.topology_button)
         self.do_layout()
 
     def closeEvent(self, e):
@@ -354,7 +355,7 @@ class nodelist(QMainWindow):
         vbox_left = QVBoxLayout()
         vbox_left.addWidget(QLabel("<strong>Nodes</strong>"))
         vbox_left.addWidget(self.node_list)
-        vbox_left.addWidget(self.topology_label)
+        vbox_left.addWidget(self.topology_button)
         left = QWidget()
         left.setLayout(vbox_left)
 
@@ -397,6 +398,9 @@ class nodelist(QMainWindow):
         self.node_info.set_node(node_text, node_data)
         self.node_actions.set_buttons(node_data)
 
+    def open_url(self):
+        QDesktopServices.openUrl(self.discover.topology_graph)
+        print(self.discover.topology_graph)
 
 if __name__ == "__main__":
     a = QApplication(sys.argv)
