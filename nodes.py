@@ -26,8 +26,9 @@ from PySide.QtGui import *
 
 
 class discover:
-    def __init__(self, node_list):
+    def __init__(self, node_list, topology_label):
         self.node_list = node_list
+        self.topology_label = topology_label
         self.check_avahi()
         self.connect_avahi()
 
@@ -46,9 +47,14 @@ class discover:
 
         dev = self.server.GetNetworkInterfaceIndexByName("bat0")
         path = self.server.ServiceBrowserNew(dev, avahi.PROTO_UNSPEC, '_workstation._tcp', 'local', 0)
-        self.sbrowser = dbus.Interface(self.bus.get_object(avahi.DBUS_NAME, path), avahi.DBUS_INTERFACE_SERVICE_BROWSER)
-        self.sbrowser.connect_to_signal("ItemNew", self.add_service)
-        self.sbrowser.connect_to_signal("ItemRemove", self.rm_service)
+        self.hbrowser = dbus.Interface(self.bus.get_object(avahi.DBUS_NAME, path), avahi.DBUS_INTERFACE_SERVICE_BROWSER)
+        self.hbrowser.connect_to_signal("ItemNew", self.add_service)
+        self.hbrowser.connect_to_signal("ItemRemove", self.rm_service)
+
+        path = self.server.ServiceBrowserNew(dev, avahi.PROTO_UNSPEC, '_http._tcp', 'local', 0)
+        self.hbrowser = dbus.Interface(self.bus.get_object(avahi.DBUS_NAME, path), avahi.DBUS_INTERFACE_SERVICE_BROWSER)
+        self.hbrowser.connect_to_signal("ItemNew", self.add_service)
+        self.hbrowser.connect_to_signal("ItemRemove", self.rm_service)
 
     def add_node(self, *args):
         name = args[2].rsplit("[")[0].strip()
@@ -57,6 +63,12 @@ class discover:
         item = QListWidgetItem(name, self.node_list)
         item.setData(Qt.UserRole, args)
         item.setIcon(QIcon.fromTheme("network-idle"))
+
+    def add_www(self, *args):
+        path = "".join(chr(b) for b in args[9][0])
+        self.topology_label.setOpenExternalLinks(True)
+        self.topology_label.setTextFormat(Qt.RichText)
+        self.topology_label.setText('<a href="http://{}:{}{}">{}</a>'.format(args[7], args[8], path, args[2]))
 
     def rm_node(self, *args):
         name = args[2].rsplit("[")[0]
@@ -74,10 +86,15 @@ class discover:
         print args[0]
 
     def add_service(self, interface, protocol, name, stype, domain, flags):
-        self.server.ResolveService(interface, protocol, name, stype, domain, avahi.PROTO_UNSPEC, 0, reply_handler=self.add_node, error_handler=self.print_error)
+        if stype == "_workstation._tcp":
+            self.server.ResolveService(interface, protocol, name, stype, domain, avahi.PROTO_UNSPEC, 0, reply_handler=self.add_node, error_handler=self.print_error)
+        elif stype == "_http._tcp":
+            self.server.ResolveService(interface, protocol, name, stype, domain, avahi.PROTO_UNSPEC, 0, reply_handler=self.add_www, error_handler=self.print_error)
 
     def rm_service(self, interface, protocol, name, stype, domain, flags):
         print("Service removed")
+        if stype == "_http._tcp":
+            self.topology_label.setText("")
 
     def client_to_orig(self, mac):
         tg = open("/sys/kernel/debug/batman_adv/bat0/transtable_global").read()
@@ -313,9 +330,10 @@ class nodelist(QMainWindow):
         self.add_log()
         self.node_list = QListWidget(self)
         self.node_list.clicked.connect(self.node_selected)
+        self.topology_label = QLabel("")
         self.node_info = node_info(self)
         self.node_actions = node_actions(self.node_list, self.log, self)
-        self.discover = discover(self.node_list)
+        self.discover = discover(self.node_list, self.topology_label)
         self.do_layout()
 
     def closeEvent(self, e):
@@ -336,6 +354,7 @@ class nodelist(QMainWindow):
         vbox_left = QVBoxLayout()
         vbox_left.addWidget(QLabel("<strong>Nodes</strong>"))
         vbox_left.addWidget(self.node_list)
+        vbox_left.addWidget(self.topology_label)
         left = QWidget()
         left.setLayout(vbox_left)
 

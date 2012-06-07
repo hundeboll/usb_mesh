@@ -359,6 +359,7 @@ class finish_page(QWizardPage):
         self.write_avahi_config()
         self.start_avahi()
         self.start_server()
+        self.publish_server()
         self.write_pidgin_config()
         self.start_pidgin()
         self.setComplete(True)
@@ -380,6 +381,7 @@ class finish_page(QWizardPage):
         data = model.itemFromIndex(idx).data()
 
         if not data:
+            self.log.appendPlainText("Creating Mesh Network")
             name = self.field("network_name")
             mode = "Ad-hoc"
             freq = self.field("network_channel")
@@ -532,6 +534,14 @@ class finish_page(QWizardPage):
         subprocess.Popen(cmd, stdout=subprocess.PIPE)
         os.chdir(pwd)
 
+    def publish_server(self):
+        if not self.creator:
+            return
+
+        self.log.appendPlainText("Publishing Topology Server")
+        cmd = ['avahi-publish-service', 'Topology Graph', '_http._tcp', '8000', '/topology.html', '&']
+        subprocess.Popen(cmd, stdout=subprocess.PIPE)
+
     def write_pidgin_config(self):
         self.log.appendPlainText("Writing Pidgin configuration")
 
@@ -587,7 +597,7 @@ class wizard(QWizard):
         self.show()
 
     def stop(self):
-        self.page(self.finish_id).stop()
+        self.page(self.finish).stop()
 
     def set_object(self, name, obj):
         self.objects[name] = obj
