@@ -319,6 +319,12 @@ class finish_page(QWizardPage):
         super(finish_page, self).__init__(parent)
         self.parent = parent
         self.complete = False
+        self.batif = False
+        self.wpa = False
+        self.autoipd = False
+        self.avahi = False
+        self.webserver = False
+        self.publisher = False
         self.pidgin = None
         self.creator = False
 
@@ -370,7 +376,7 @@ class finish_page(QWizardPage):
         self.log.appendPlainText("Getting config data")
         # Get device name
         dev_combo = self.parent.get_object("network_dev")
-        dev = dev_combo.currentData()[0]
+        self.dev = dev_combo.currentData()[0]
 
         # Get network data
         ssid_combo = self.parent.get_object("network_ssid")
@@ -394,10 +400,11 @@ class finish_page(QWizardPage):
         elif data[2] == 'IBSS':
             data[2] = "Ad-hoc"
 
-        return dev,data
+        return self.dev,data
 
     def construct_config_paths(self, dev):
         self.wpa_config = "/tmp/wpa_{}_tmp.conf".format(dev)
+        self.wpa_pid = "/tmp/wpa_{}_tmp.pid".format(dev)
         self.avahi_config = "/tmp/avahi_{}_tmp.conf".format(dev)
         self.pidgin_path = "/tmp/purple_{}_tmp".format(dev)
         self.pidgin_config = self.pidgin_path + "/accounts.xml"
@@ -445,9 +452,9 @@ class finish_page(QWizardPage):
             p = subprocess.Popen(cmd)
             p.wait()
 
-        cmd = ['gksudo', 'wpa_supplicant -B -i {} -c {}'.format(dev, self.wpa_config)]
-        p = subprocess.Popen(cmd)
-        p.wait()
+        cmd = ['gksudo', 'wpa_supplicant -B -i {} -c {} -P {}'.format(dev, self.wpa_config, self.wpa_pid)]
+        self.wpa = subprocess.Popen(cmd)
+        self.wpa.wait()
 
     def config_dev(self, dev):
         self.log.appendPlainText("Configuring interface")
@@ -464,8 +471,8 @@ class finish_page(QWizardPage):
     def config_bat0(self, dev):
         self.log.appendPlainText("Configuring batman-adv")
         cmd = ['gksudo', 'batctl', 'if', 'add', dev]
-        p = subprocess.Popen(cmd)
-        p.wait()
+        self.batif = subprocess.Popen(cmd)
+        self.batif.wait()
 
         cmd = ['gksudo', 'batctl', 'nc', 'st', '1']
         p = subprocess.Popen(cmd)
@@ -478,8 +485,8 @@ class finish_page(QWizardPage):
 
         self.log.appendPlainText("Acquiring IP address")
         cmd = ['gksudo', 'avahi-autoipd --force-bind --daemonize --wait bat0']
-        p = subprocess.Popen(cmd)
-        p.wait()
+        self.autoipd = subprocess.Popen(cmd)
+        self.autoipd.wait()
 
     def write_avahi_config(self):
         self.log.appendPlainText("Writing Avahi configuration")
@@ -522,8 +529,8 @@ class finish_page(QWizardPage):
     def start_avahi(self):
         self.log.appendPlainText("Publishing node")
         cmd = ['gksudo', 'avahi-daemon -f {} --daemonize'.format(self.avahi_config)]
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        p.wait()
+        self.avahi = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.avahi.wait()
 
     def start_server(self):
         if not self.creator:
@@ -533,7 +540,7 @@ class finish_page(QWizardPage):
         pwd = os.getcwd()
         os.chdir(os.path.join(sys.path[0], "web"))
         cmd = ['python2', '-m', 'CGIHTTPServer', '8000']
-        subprocess.Popen(cmd, stdout=subprocess.PIPE)
+        self.webserver = subprocess.Popen(cmd, stdout=subprocess.PIPE)
         os.chdir(pwd)
 
     def publish_server(self):
@@ -542,7 +549,7 @@ class finish_page(QWizardPage):
 
         self.log.appendPlainText("Publishing Topology Server")
         cmd = ['avahi-publish-service', 'Topology Graph', '_http._tcp', '8000', '/topology.html']
-        subprocess.Popen(cmd, stdout=subprocess.PIPE)
+        self.publisher = subprocess.Popen(cmd, stdout=subprocess.PIPE)
 
     def write_pidgin_config(self):
         self.log.appendPlainText("Writing Pidgin configuration")
@@ -573,6 +580,33 @@ class finish_page(QWizardPage):
         self.pidgin = subprocess.Popen(cmd)
 
     def stop(self):
+        if self.batif:
+            cmd = ['gksudo', 'batctl if del {}'.format(self.dev)]
+            p = subprocess.Popen(cmd)
+            p.wait()
+
+        if self.wpa:
+            pid = open(self.wpa_pid).read().strip("\n")
+            cmd = ["gksudo", "kill {}".format(pid)]
+            p = subprocess.Popen(cmd)
+            p.wait()
+
+        if self.autoipd:
+            cmd = ["gksudo", "avahi-autoipd --kill bat0"]
+            p = subprocess.Popen(cmd)
+            p.wait()
+
+        if self.avahi:
+            cmd = ["gksudo", "avahi-daemon --kill"]
+            p = subprocess.Popen(cmd)
+            p.wait()
+
+        if self.webserver:
+            self.webserver.kill()
+
+        if self.publisher:
+            self.publisher.kill()
+
         if self.pidgin:
             self.pidgin.kill()
 
