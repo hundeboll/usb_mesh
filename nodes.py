@@ -190,6 +190,7 @@ class node_actions(QWidget):
     def add_button(self, name, handler, checkable=False):
         b = QPushButton(name)
         b.clicked.connect(handler)
+        b.setEnabled(False)
         if checkable: b.setCheckable(True)
         self.buttons.append(b)
 
@@ -402,6 +403,8 @@ class nodelist(QMainWindow):
         self.show()
 
     def node_selected(self, idx):
+        for button in self.node_actions.buttons:
+            button.setEnabled(True)
         node_text = self.node_list.currentItem().text()
         node_data = self.node_list.currentItem().data(Qt.UserRole)
         self.node_info.set_node(node_text, node_data)
