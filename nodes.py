@@ -247,15 +247,16 @@ class node_actions(QWidget):
         data['buttons'][button.text()] = button.isChecked()
         item.setData(Qt.UserRole, data)
         if button.isChecked():
-            t = threading.Thread(None, self.iperf_node_thread, kwargs={'data': data})
+            (rate, ok) = QInputDialog.getInteger(self, "Iperf Rate Selection", "Enter Iperf rate in kbit/s:", 200)
+            t = threading.Thread(None, self.iperf_node_thread, kwargs={'data': data, 'rate': rate})
             t.start()
         else:
             pid = self.iperf_pids[data['ipv4']]
             if pid.poll() == None:
                 pid.send_signal(signal.SIGINT)
 
-    def iperf_node_thread(self, data):
-        cmd = ["iperf", "-c", data['ipv4'], "-udb100k"]
+    def iperf_node_thread(self, data, rate):
+        cmd = ["iperf", "-c", data['ipv4'], "-udb{}k".format(rate)]
         print(cmd)
         self.iperf_pids[data['ipv4']] = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         while self.iperf_pids[data['ipv4']].poll() == None:
