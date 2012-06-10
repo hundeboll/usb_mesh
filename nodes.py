@@ -26,8 +26,9 @@ from PySide.QtGui import *
 
 
 class discover:
-    def __init__(self, node_list, topology_button):
+    def __init__(self, node_list, node_actions, topology_button):
         self.node_list = node_list
+        self.node_actions = node_actions
         self.topology_button = topology_button
         self.check_avahi()
         self.connect_avahi()
@@ -59,9 +60,16 @@ class discover:
     def add_node(self, *args):
         name = args[2].rsplit("[")[0].strip()
         mac = args[2].rsplit("[")[1].strip("]")
-        args += (self.client_to_orig(mac), False, False, False, False)
         item = QListWidgetItem(name, self.node_list)
-        item.setData(Qt.UserRole, args)
+        data = {}
+        data['name'] = name
+        data['mac'] = mac
+        data['orig'] = self.client_to_orig(mac)
+        data['ipv4'] = args[7]
+        data['buttons'] = {}
+        for text in self.node_actions.get_button_texts():
+            data['buttons'][text] = False
+        item.setData(Qt.UserRole, data)
         item.setIcon(QIcon.fromTheme("network-idle"))
 
     def add_www(self, *args):
@@ -75,7 +83,7 @@ class discover:
         for item in items:
             # Check if data fields match
             data = item.data(Qt.UserRole)
-            if data[2] != args[2] or data[7] != args[7]:
+            if data['ipv4'] != args[2] or data['ipv4'] != args[7]:
                 continue
             row = self.node_list.row(item)
             self.node_list.takeItem(row)
@@ -101,7 +109,8 @@ class discover:
             if mac in line:
                 break
         else:
-            return None
+             origs = open('/sys/kernel/debug/batman_adv/bat0/originators').read()
+             return re.findall("MainIF/MAC: .+/([a-f0-9:]{17})", origs)[0]
 
         match = re.findall(" \* [0-9a-f:]{17}  \( +\d+\) via ([0-9a-f:]{17})", line)
         return match[0] if match else None
@@ -147,11 +156,10 @@ class node_info(QWidget):
         self.setLayout(grid)
 
     def set_node(self, name, data):
-        mac = data[2].rsplit("[")[1].strip("]")
-        self.set_field("name", name)
-        self.set_field("mac", mac)
-        self.set_field("ipv4", data[7])
-        self.set_field("orig", data[11])
+        self.set_field("name", data['name'])
+        self.set_field("mac", data['mac'])
+        self.set_field("ipv4", data['ipv4'])
+        self.set_field("orig", data['orig'])
 
 
 class node_actions(QWidget):
@@ -190,11 +198,12 @@ class node_actions(QWidget):
             if button.text() == name:
                 return button
 
+    def get_button_texts(self):
+        return [b.text() for b in self.buttons]
+
     def set_buttons(self, data):
-        i = 0
         for button in self.buttons:
-            button.setChecked(data[12+i])
-            i += 1
+            button.setChecked(data['buttons'][button.text()])
 
     def do_layout(self):
         vbox = QVBoxLayout()
@@ -211,22 +220,22 @@ class node_actions(QWidget):
         button = self.get_button("Ping")
         item = self.node_list.currentItem()
         data = item.data(Qt.UserRole)
-        data[12] = button.isChecked()
+        data['buttons'][button.text()] = button.isChecked()
         item.setData(Qt.UserRole, data)
         if button.isChecked():
             t = threading.Thread(None, self.ping_node_thread, kwargs={'data': data})
             t.start()
         else:
-            self.ping_pids[data[2]].send_signal(signal.SIGINT)
+            self.ping_pids[data['ipv4']].send_signal(signal.SIGINT)
 
     def ping_node_thread(self, data):
-        cmd = ["ping", data[7]]
-        self.ping_pids[data[2]] = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        while self.ping_pids[data[2]].poll() == None:
-            line = self.ping_pids[data[2]].stdout.readline()
+        cmd = ["ping", data['ipv4']]
+        self.ping_pids[data['ipv4']] = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        while self.ping_pids[data['ipv4']].poll() == None:
+            line = self.ping_pids[data['ipv4']].stdout.readline()
             self.log_add_line.emit(line)
 
-        stdout,stderr = self.ping_pids[data[2]].communicate()
+        stdout,stderr = self.ping_pids[data['ipv4']].communicate()
         for line in stdout.split("\n"):
             self.log_add_line.emit(line)
 
@@ -234,22 +243,22 @@ class node_actions(QWidget):
         button = self.get_button("Iperf")
         item = self.node_list.currentItem()
         data = item.data(Qt.UserRole)
-        data[13] = button.isChecked()
+        data['buttons'][button.text()] = button.isChecked()
         item.setData(Qt.UserRole, data)
         if button.isChecked():
             t = threading.Thread(None, self.iperf_node_thread, kwargs={'data': data})
             t.start()
         else:
-            pid = self.iperf_pids[data[2]]
+            pid = self.iperf_pids[data['ipv4']]
             if pid.poll() == None:
                 pid.send_signal(signal.SIGINT)
 
     def iperf_node_thread(self, data):
-        cmd = ["iperf", "-c", data[7], "-udb100k"]
+        cmd = ["iperf", "-c", data['ipv4'], "-udb100k"]
         print(cmd)
-        self.iperf_pids[data[2]] = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        while self.iperf_pids[data[2]].poll() == None:
-            line = self.iperf_pids[data[2]].stdout.readline()
+        self.iperf_pids[data['ipv4']] = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        while self.iperf_pids[data['ipv4']].poll() == None:
+            line = self.iperf_pids[data['ipv4']].stdout.readline()
             self.log_add_line.emit(line)
         self.get_button("Iperf").setChecked(False)
 
@@ -276,7 +285,7 @@ class node_actions(QWidget):
         button = self.get_button("Block path")
         item = self.node_list.currentItem()
         data = item.data(Qt.UserRole)
-        data[14] = button.isChecked()
+        data['buttons'][button.text()] = button.isChecked()
         item.setData(Qt.UserRole, data)
         if button.isChecked():
             pass_button = self.get_button("Pass path")
@@ -284,11 +293,11 @@ class node_actions(QWidget):
                 pass_button.setChecked(False)
                 self.pass_node()
 
-            self.block_node_exec(data[11])
+            self.block_node_exec(data['orig'])
             item.setIcon(QIcon.fromTheme("stock_delete"))
             self.log.appendPlainText("Blocking OGMs directly from '{}'".format(item.text()))
         else:
-            self.del_node_exec(data[11])
+            self.del_node_exec(data['orig'])
             item.setIcon(QIcon.fromTheme("network-idle"))
             self.log.appendPlainText("Unblocking OGMs directly from '{}'".format(item.text()))
 
@@ -296,7 +305,7 @@ class node_actions(QWidget):
         button = self.get_button("Pass path")
         item = self.node_list.currentItem()
         data = item.data(Qt.UserRole)
-        data[15] = button.isChecked()
+        data['buttons'][button.text()] = button.isChecked()
         item.setData(Qt.UserRole, data)
         if button.isChecked():
             button = self.get_button("Block path")
@@ -304,7 +313,7 @@ class node_actions(QWidget):
                 button.setChecked(False)
                 self.block_node()
 
-            self.allow_node_exec(data[11])
+            self.allow_node_exec(data['orig'])
             item.setIcon(QIcon.fromTheme("emblem-default"))
             self.allow_count += 1
             if self.allow_count == 1:
@@ -312,7 +321,7 @@ class node_actions(QWidget):
             else:
                 self.log.appendPlainText("Allowing OGMs direclty from '{}' also".format(item.text()))
         else:
-            self.del_node_exec(data[11])
+            self.del_node_exec(data['orig'])
             item.setIcon(QIcon.fromTheme("network-idle"))
             self.allow_count -= 1
             if self.allow_count == 0:
@@ -334,7 +343,7 @@ class nodelist(QMainWindow):
         self.topology_button.clicked.connect(self.open_url)
         self.node_info = node_info(self)
         self.node_actions = node_actions(self.node_list, self.log, self)
-        self.discover = discover(self.node_list, self.topology_button)
+        self.discover = discover(self.node_list, self.node_actions, self.topology_button)
         self.do_layout()
 
     def closeEvent(self, e):
